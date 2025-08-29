@@ -105,25 +105,38 @@ router.post('/', authMiddleware, async (req, res) => {
 
     try {
       // Garantir que estrutura do usuário existe primeiro
-      await SSHManager.createCompleteUserStructure(serverId, userLogin, {
-        bitrate: req.user.bitrate || 2500,
-        espectadores: req.user.espectadores || 100,
-        status_gravando: 'nao'
-      });
+      // Primeiro, garantir que o diretório base do usuário existe
+      console.log(`🏗️ Criando estrutura base para usuário ${userLogin} no servidor ${serverId}`);
       
-      console.log(`🏗️ Estrutura do usuário ${userLogin} garantida no servidor ${serverId}`);
-      
-      // Aguardar um pouco para garantir que estrutura foi criada
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Criar pasta no servidor de forma otimizada
-      const folderCreationResult = await SSHManager.createUserFolder(serverId, userLogin, sanitizedName);
-      
-      if (!folderCreationResult.success) {
-        throw new Error('Falha ao criar pasta no servidor');
+      const userBaseResult = await SSHManager.createUserDirectory(serverId, userLogin);
+      if (!userBaseResult.success) {
+        throw new Error(`Falha ao criar diretório base: ${userBaseResult.error || 'Erro desconhecido'}`);
       }
       
-      console.log(`📁 Pasta ${sanitizedName} criada no servidor: ${folderCreationResult.folderPath}`);
+      console.log(`✅ Diretório base criado: ${userBaseResult.userDir}`);
+      
+      // Aguardar criação do diretório base
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Agora criar a pasta específica
+      console.log(`📁 Criando pasta específica: ${sanitizedName}`);
+      
+      const folderResult = await SSHManager.createUserFolder(serverId, userLogin, sanitizedName);
+      if (!folderResult.success) {
+        throw new Error(`Falha ao criar pasta específica: ${folderResult.error || 'Erro desconhecido'}`);
+      }
+      
+      console.log(`✅ Pasta ${sanitizedName} criada com sucesso: ${folderResult.folderPath}`);
+      
+      // Verificar se a pasta foi realmente criada
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const verificationResult = await SSHManager.executeCommand(serverId, `test -d "${folderResult.folderPath}" && echo "EXISTS" || echo "NOT_EXISTS"`);
+      if (!verificationResult.stdout.includes('EXISTS')) {
+        throw new Error(`Pasta não foi criada corretamente: ${folderResult.folderPath}`);
+      }
+      
+      console.log(`✅ Verificação concluída: Pasta ${sanitizedName} existe no servidor`);
       
     } catch (sshError) {
       console.error('Erro ao criar pasta no servidor:', sshError);
@@ -131,7 +144,13 @@ router.post('/', authMiddleware, async (req, res) => {
       await db.execute('DELETE FROM folders WHERE id = ?', [result.insertId]);
       return res.status(500).json({ 
         error: 'Erro ao criar pasta no servidor',
-        details: sshError.message 
+        details: sshError.message,
+        debug_info: {
+          user_login: userLogin,
+          server_id: serverId,
+          folder_name: sanitizedName,
+          server_path: caminhoServidor
+        }
       });
     }
 
@@ -140,6 +159,7 @@ router.post('/', authMiddleware, async (req, res) => {
       try {
         const PlaylistSMILService = require('../services/PlaylistSMILService');
         await PlaylistSMILService.updateUserSMIL(userId, userLogin, serverId);
+        console.log(`✅ Arquivo SMIL atualizado para usuário ${userLogin}`);
       } catch (smilError) {
         console.warn('Erro ao atualizar arquivo SMIL:', smilError.message);
       }
