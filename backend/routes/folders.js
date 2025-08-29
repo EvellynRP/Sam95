@@ -173,11 +173,21 @@ router.post('/', authMiddleware, async (req, res) => {
       sanitized: sanitizedName !== nome.toLowerCase(),
       espaco_usado: 0,
       servidor_id: serverId,
-      caminho_servidor: caminhoServidor
+      caminho_servidor: caminhoServidor,
+      message: 'Pasta criada com sucesso no servidor'
     });
   } catch (err) {
     console.error('Erro ao criar pasta:', err);
-    res.status(500).json({ error: 'Erro ao criar pasta', details: err.message });
+    res.status(500).json({ 
+      error: 'Erro ao criar pasta', 
+      details: err.message,
+      debug_info: {
+        user_id: userId,
+        user_login: userLogin || 'N/A',
+        server_id: serverId,
+        folder_name: sanitizedName || 'N/A'
+      }
+    });
   }
 });
 

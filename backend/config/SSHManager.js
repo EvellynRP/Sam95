@@ -210,58 +210,50 @@ class SSHManager {
         try {
             // Verificar cooldown para criação de diretório
             const operationKey = this.generateOperationKey('createUserDirectory', serverId, userLogin);
-            // Remover cooldown para operações críticas de criação de diretório
-            // if (this.isOperationInCooldown(operationKey)) {
-            //   console.log(`⏭️ Pulando criação de diretório (cooldown): ${userLogin}`);
-            //   return { success: true, userDir: `/home/streaming/${userLogin}` };
-            // }
+            if (this.isOperationInCooldown(operationKey)) {
+                console.log(`⏭️ Pulando criação de diretório (cooldown): ${userLogin}`);
+                return { success: true, userDir: `/home/streaming/${userLogin}` };
+            }
 
             // Nova estrutura: /home/streaming/[usuario]
             const userDir = `/home/streaming/${userLogin}`;
 
-            console.log(`🏗️ Criando estrutura de diretório para usuário: ${userLogin}`);
-            console.log(`📁 Caminho do diretório: ${userDir}`);
+            // Verificar se diretório já existe antes de criar
+            const checkResult = await this.executeCommand(serverId, `test -d "${userDir}" && echo "EXISTS" || echo "NOT_EXISTS"`);
+            if (checkResult.stdout.includes('EXISTS')) {
+                console.log(`✅ Diretório já existe: ${userDir}`);
+                this.markOperationExecuted(operationKey);
+                return { success: true, userDir };
+            }
 
             const commands = [
-                `mkdir -p /home/streaming`,
                 `mkdir -p ${userDir}`,
                 `mkdir -p ${userDir}/recordings`,
                 `mkdir -p ${userDir}/logos`,
-                `chmod -R 755 ${userDir}`,
-                `chown -R streaming:streaming ${userDir} 2>/dev/null || chown -R root:root ${userDir} 2>/dev/null || true`
+                `chown -R streaming:streaming ${userDir} || true`,
+                `chmod -R 755 ${userDir} || true`
             ];
 
             for (const command of commands) {
                 try {
-                    console.log(`🔧 Executando: ${command}`);
                     const result = await this.executeCommand(serverId, command);
-                    console.log(`✅ Comando executado com sucesso: ${command}`);
                     if (result.stderr) {
                         console.warn(`⚠️ Aviso no comando "${command}": ${result.stderr}`);
                     }
                 } catch (cmdError) {
-                    console.error(`❌ Erro no comando "${command}": ${cmdError.message}`);
-                    // Para comandos críticos, não continuar
-                    if (command.includes('mkdir -p')) {
-                        throw new Error(`Falha crítica ao criar diretório: ${cmdError.message}`);
-                    }
+                    console.warn(`⚠️ Erro no comando "${command}": ${cmdError.message}`);
+                    // Continuar mesmo com erros de permissão
                 }
-            }
-
-            // Verificar se diretório foi criado com sucesso
-            const finalCheckResult = await this.executeCommand(serverId, `test -d "${userDir}" && echo "EXISTS" || echo "NOT_EXISTS"`);
-            if (!finalCheckResult.stdout.includes('EXISTS')) {
-                throw new Error(`Diretório não foi criado: ${userDir}`);
             }
 
             console.log(`✅ Estrutura de diretório verificada/criada para usuário ${userLogin}`);
 
             this.markOperationExecuted(operationKey);
 
-            return { success: true, userDir, created: true };
+            return { success: true, userDir };
         } catch (error) {
             console.error(`Erro ao criar diretório para usuário ${userLogin}:`, error);
-            return { success: false, error: error.message, userDir: `/home/streaming/${userLogin}` };
+            throw error;
         }
     }
 
@@ -269,57 +261,54 @@ class SSHManager {
         try {
             // Verificar cooldown para criação de pasta
             const operationKey = this.generateOperationKey('createUserFolder', serverId, userLogin, folderName);
-            // Remover cooldown para operações críticas de criação de pasta
-            // if (this.isOperationInCooldown(operationKey)) {
-            //   console.log(`⏭️ Pulando criação de pasta (cooldown): ${folderName}`);
-            //   return { success: true, folderPath: `/home/streaming/${userLogin}/${folderName}` };
-            // }
+            if (this.isOperationInCooldown(operationKey)) {
+                console.log(`⏭️ Pulando criação de pasta (cooldown): ${folderName}`);
+                return { success: true, folderPath: `/home/streaming/${userLogin}/${folderName}` };
+            }
 
             // Estrutura correta: /home/streaming/[usuario]/[pasta]
             const folderPath = `/home/streaming/${userLogin}/${folderName}`;
 
-            console.log(`📁 Criando pasta: ${folderName} para usuário: ${userLogin}`);
-            console.log(`📂 Caminho completo: ${folderPath}`);
+            // Verificar se pasta já existe
+            const checkResult = await this.executeCommand(serverId, `test -d "${folderPath}" && echo "EXISTS" || echo "NOT_EXISTS"`);
+            if (checkResult.stdout.includes('EXISTS')) {
+                console.log(`✅ Pasta já existe: ${folderPath}`);
+                this.markOperationExecuted(operationKey);
+                return { success: true, folderPath };
+            }
 
             const commands = [
                 `mkdir -p ${folderPath}`,
                 `chmod 755 ${folderPath}`,
-                `chown streaming:streaming ${folderPath} 2>/dev/null || chown root:root ${folderPath} 2>/dev/null || true`
+                `chown streaming:streaming ${folderPath} 2>/dev/null || true`
             ];
 
             for (const command of commands) {
                 try {
-                    console.log(`🔧 Executando comando: ${command}`);
                     const result = await this.executeCommand(serverId, command);
-                    console.log(`✅ Comando executado: ${command}`);
                     if (result.stderr) {
                         console.warn(`⚠️ Aviso: ${result.stderr}`);
                     }
                 } catch (cmdError) {
-                    console.error(`❌ Erro no comando "${command}": ${cmdError.message}`);
-                    // Para mkdir, não continuar se falhar
-                    if (command.includes('mkdir -p')) {
-                        throw new Error(`Falha ao criar pasta: ${cmdError.message}`);
-                    }
+                    console.warn(`⚠️ Erro: ${cmdError.message}`);
+                    // Continuar mesmo com erros de permissão
                 }
             }
 
-            // Aguardar um pouco e verificar se pasta foi criada
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
+            // Verificar se pasta foi criada (sem aguardar)
             const finalCheckResult = await this.executeCommand(serverId, `test -d "${folderPath}" && echo "EXISTS" || echo "NOT_EXISTS"`);
 
             if (!finalCheckResult.stdout.includes('EXISTS')) {
-                throw new Error(`Pasta não foi criada corretamente: ${folderPath}`);
+                throw new Error(`Pasta não foi criada: ${folderPath}`);
             }
 
             console.log(`✅ Pasta ${folderName} criada: ${folderPath}`);
             this.markOperationExecuted(operationKey);
 
-            return { success: true, folderPath, created: true };
+            return { success: true, folderPath };
         } catch (error) {
             console.error(`Erro ao criar pasta ${folderName}:`, error);
-            return { success: false, error: error.message, folderPath: `/home/streaming/${userLogin}/${folderName}` };
+            throw error;
         }
     }
 
@@ -424,6 +413,19 @@ class SSHManager {
                     this.operationQueue.delete(key);
                 } else if (typeof value === 'number' && now - value > this.cooldownPeriod * 2) {
                     this.operationQueue.delete(key);
+                }
+            }
+            
+            // Limpar conexões antigas também
+            for (const [connectionKey, connectionData] of this.connections.entries()) {
+                if (connectionData.lastUsed && now - connectionData.lastUsed.getTime() > 300000) { // 5 minutos
+                    try {
+                        connectionData.conn.end();
+                        console.log(`🧹 Conexão SSH expirada removida: ${connectionKey}`);
+                    } catch (error) {
+                        // Ignorar erros ao fechar
+                    }
+                    this.connections.delete(connectionKey);
                 }
             }
         }, 60000); // limpar a cada minuto

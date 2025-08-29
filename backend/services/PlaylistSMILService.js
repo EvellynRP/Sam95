@@ -295,10 +295,21 @@ class PlaylistSMILService {
         try {
             const SSHManager = require('../config/SSHManager');
             
-            // Verificar se arquivo já existe
-            const fileExists = await SSHManager.getFileInfo(serverId, smilPath);
-            if (fileExists.exists) {
-                return { success: true, path: smilPath };
+            console.log(`📄 Salvando arquivo SMIL: ${smilPath}`);
+            
+            // Garantir que o diretório do usuário existe antes de criar o SMIL
+            const userDir = `/home/streaming/${userLogin}`;
+            const dirExists = await SSHManager.checkDirectoryExists(serverId, userDir);
+            
+            if (!dirExists) {
+                console.log(`📁 Diretório do usuário não existe, criando: ${userDir}`);
+                const createDirResult = await SSHManager.createUserDirectory(serverId, userLogin);
+                if (!createDirResult.success) {
+                    throw new Error(`Falha ao criar diretório do usuário: ${createDirResult.error}`);
+                }
+                
+                // Aguardar criação do diretório
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
 
             // Criar arquivo temporário local
@@ -309,6 +320,7 @@ class PlaylistSMILService {
             try {
                 // Enviar para servidor
                 await SSHManager.uploadFile(serverId, tempFile, smilPath);
+                console.log(`✅ Arquivo SMIL enviado: ${smilPath}`);
                 
                 // Definir permissões corretas (ignorar erros)
                 try {
@@ -329,7 +341,9 @@ class PlaylistSMILService {
 
         } catch (error) {
             console.error('Erro ao salvar SMIL no servidor:', error);
-            throw error;
+            // Não falhar se SMIL não puder ser criado
+            console.warn('⚠️ Continuando sem arquivo SMIL devido ao erro:', error.message);
+            return { success: false, error: error.message, path: smilPath };
         }
     }
 
